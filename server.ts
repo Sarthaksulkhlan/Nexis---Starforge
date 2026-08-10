@@ -10,6 +10,13 @@ dotenv.config();
 const PORT = Number(process.env.PORT || 3000);
 const QDRANT_COLLECTION = process.env.QDRANT_COLLECTION || "matrix_core_memory";
 const EMBEDDING_SIZE = 128;
+const LIVEKIT_AGENT_NAME = process.env.LIVEKIT_AGENT_NAME || "matrix-core-agent";
+const GEMINI_MODELS = Array.from(
+  new Set([
+    process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash",
+  ]),
+);
 
 type Workflow = "food" | "healthcare" | "cooking";
 
@@ -301,6 +308,59 @@ function createLiveKitToken(identity: string, roomName: string, metadata: Record
   );
 }
 
+function createLiveKitAdminToken(roomName: string) {
+  const apiKey = process.env.LIVEKIT_API_KEY;
+  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  if (!apiKey || !apiSecret) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  return signJwt(
+    {
+      iss: apiKey,
+      sub: "matrix-core-server",
+      nbf: now - 10,
+      exp: now + 60 * 5,
+      video: {
+        room: roomName,
+        roomAdmin: true,
+      },
+    },
+    apiSecret,
+  );
+}
+
+function liveKitHttpUrl() {
+  const rawUrl = process.env.LIVEKIT_URL?.replace(/\/$/, "");
+  if (!rawUrl) return "";
+  return rawUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+}
+
+async function dispatchLiveKitAgent(roomName: string, metadata: Record<string, string>) {
+  const token = createLiveKitAdminToken(roomName);
+  const baseUrl = liveKitHttpUrl();
+  if (!token || !baseUrl) return null;
+
+  const response = await fetch(`${baseUrl}/twirp/livekit.AgentDispatchService/CreateDispatch`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agent_name: LIVEKIT_AGENT_NAME,
+      room: roomName,
+      metadata: JSON.stringify(metadata),
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`LiveKit agent dispatch failed ${response.status}: ${body.slice(0, 180)}`);
+  }
+
+  return response.json();
+}
+
 async function synthesizeWithRime(text: string) {
   const apiKey = process.env.RIME_API_KEY;
   if (!apiKey) return null;
@@ -346,15 +406,25 @@ async function startServer() {
     });
   });
 
-  app.post("/api/livekit/token", (req, res) => {
+  app.post("/api/livekit/token", async (req, res) => {
     const workflow = normalizeWorkflow(req.body?.workflow || req.body?.experience);
     const userId = getUserId(req.body?.userId);
-    const roomName = String(req.body?.roomName || `matrix-core-${workflow}-${Date.now()}`);
+    const roomName = String(req.body?.roomName || `nexis-${workflow}-${Date.now()}`);
     const identity = String(req.body?.participantName || `${userId}-${crypto.randomUUID().slice(0, 8)}`);
-    const token = createLiveKitToken(identity, roomName, { user_id: userId, workflow });
+    const metadata = { user_id: userId, workflow };
+    const token = createLiveKitToken(identity, roomName, metadata);
 
     if (!process.env.LIVEKIT_URL || !token) {
       return res.status(503).json({ error: "LiveKit credentials are not configured on the server." });
+    }
+
+    try {
+      await dispatchLiveKitAgent(roomName, metadata);
+    } catch (error: any) {
+      console.warn("LiveKit agent dispatch failed:", error.message || String(error));
+      return res.status(503).json({
+        error: "AURA agent could not be dispatched. Make sure the Python agent is running.",
+      });
     }
 
     res.json({
@@ -363,6 +433,7 @@ async function startServer() {
       roomName,
       identity,
       workflow,
+      agentName: LIVEKIT_AGENT_NAME,
     });
   });
 
@@ -388,9 +459,12 @@ async function startServer() {
       if (ai) {
         try {
           const llmStartedAt = Date.now();
-          const response = await ai.models.generateContent({
-            model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-            contents: `
+          let responseTextFromModel = "";
+          for (const model of GEMINI_MODELS) {
+            try {
+              const response = await ai.models.generateContent({
+                model,
+                contents: `
 Current task: ${taskTitle || "Matrix Core voice session"}
 Workflow: ${workflow}
 Workflow instructions: ${WORKFLOW_PROMPTS[workflow]}
@@ -403,14 +477,19 @@ ${Array.isArray(history) ? history.slice(-6).map((m: any) => `${m.sender}: ${m.t
 
 User said: "${message}"
 `,
-            config: {
-              systemInstruction:
-                "You are AURA, Matrix Core's adaptive voice agent. Use retrieved context when relevant. Give one or two short spoken sentences. Never mention internal APIs. In healthcare mode, stay safe and non-diagnostic.",
-              temperature: 0.55,
-            },
-          });
+                config: {
+                  systemInstruction:
+                    "You are AURA, Matrix Core's adaptive voice agent. Use retrieved context when relevant. Give one or two short spoken sentences. Never mention internal APIs. In healthcare mode, stay safe and non-diagnostic.",
+                },
+              });
+              responseTextFromModel = response.text || "";
+              break;
+            } catch (error: any) {
+              console.warn(`Gemini generation failed for ${model}:`, error.message || String(error));
+            }
+          }
           llmMs = Date.now() - llmStartedAt;
-          responseText = (response.text || responseText).trim();
+          responseText = (responseTextFromModel || responseText).trim();
         } catch (error: any) {
           console.warn("Gemini generation failed:", error.message || String(error));
         }

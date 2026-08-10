@@ -60,7 +60,7 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
             <CheckCircle2 className="w-8 h-8 text-[#adc6ff]" />
           </div>
           <h1 className="font-['Geist'] text-3xl md:text-4xl font-bold text-white tracking-tight">
-            MATRIX CORE | Session Summary
+            NEXIS | Session Summary
           </h1>
           <p className="text-base text-[#c2c6d6] font-medium">AURA / Adaptive Voice Agent</p>
         </header>

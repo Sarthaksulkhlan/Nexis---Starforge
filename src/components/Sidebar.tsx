@@ -14,7 +14,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, onN
       
       {/* Header */}
       <div className="px-6 mb-6">
-        <h2 className="font-['Geist'] text-2xl font-bold text-[#adc6ff]">Core System</h2>
+        <h2 className="font-['Geist'] text-2xl font-bold text-[#adc6ff]">Nexis System</h2>
         <p className="font-mono text-xs text-[#c2c6d6]/70 mt-1">AURA Adaptive Voice</p>
       </div>
 

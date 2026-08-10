@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ActiveView } from '../types';
 import { ThreeMatrixCore } from './ThreeMatrixCore';
 import { SoundWaveRipple } from './SoundWaveRipple';
-import { Mic, ArrowRight, History, Brain, Database, PlayCircle, FileText, Github, Sparkles } from 'lucide-react';
+import { Mic, ArrowRight, History, Brain, Database, PlayCircle, FileText, Radio, Volume2, Sparkles } from 'lucide-react';
+import { NexisLogo } from './NexisLogo';
 
 interface MatrixCoreLandingProps {
   setActiveView: (view: ActiveView) => void;
@@ -13,6 +14,15 @@ const TYPEWRITER_PHRASES = [
   "Never start a conversation from zero.",
   "Never start a task from zero.",
   "Never lose the context."
+];
+
+const CAPABILITIES = [
+  { label: 'Context-aware voice', icon: Mic },
+  { label: 'Workflow intelligence', icon: Brain },
+  { label: 'Qdrant memory', icon: Database },
+  { label: 'Gemini reasoning', icon: Sparkles },
+  { label: 'Rime voice synthesis', icon: Volume2 },
+  { label: 'LiveKit transport', icon: Radio },
 ];
 
 export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
@@ -97,15 +107,22 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
         {/* Left Hero Content */}
         <div className="lg:col-span-6 flex flex-col gap-6">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md w-fit">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#adc6ff] animate-pulse" />
+            <NexisLogo className="w-5 h-5" />
             <span className="font-mono text-xs text-[#adc6ff] uppercase tracking-wider font-semibold">
-              AURA Voice Core Active
+              Nexis / AURA Adaptive Voice Agent
             </span>
           </div>
 
+          <div className="space-y-2">
+            <p className="font-mono text-xs uppercase tracking-[0.3em] text-[#89ceff]">Nexis</p>
+            <h2 className="font-['Geist'] text-3xl sm:text-4xl lg:text-5xl font-bold text-white leading-tight">
+              Adaptive Voice Agent
+            </h2>
+          </div>
+
           {/* Typewriter Headline */}
-          <div className="min-h-[140px] sm:min-h-[170px] flex items-center">
-            <h1 className="font-['Geist'] text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.1] tracking-tight text-white drop-shadow-[0_0_25px_rgba(173,198,255,0.3)]">
+          <div className="min-h-[96px] sm:min-h-[122px] flex items-center">
+            <h1 className="font-['Geist'] text-3xl sm:text-4xl lg:text-5xl font-bold leading-[1.12] tracking-tight text-white drop-shadow-[0_0_25px_rgba(173,198,255,0.3)]">
               {displayedText}
               <span className="animate-pulse text-[#4d8eff] ml-1">|</span>
             </h1>
@@ -113,8 +130,17 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
 
           {/* Hero Supporting Line */}
           <p className="text-base sm:text-lg text-[#c2c6d6] leading-relaxed max-w-xl">
-            Speak naturally. AURA remembers what matters, understands your context, and helps you continue from where you left off.
+            AURA understands the active workflow, retrieves relevant context from memory, reasons with Gemini, and continues conversations instead of starting from zero.
           </p>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-xl">
+            {CAPABILITIES.map(({ label, icon: Icon }) => (
+              <div key={label} className="bg-[#10131a]/70 border border-white/10 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                <Icon className="w-4 h-4 text-[#adc6ff]" />
+                <span className="text-xs font-mono text-[#e1e2ec]">{label}</span>
+              </div>
+            ))}
+          </div>
 
           {/* Hero CTAs */}
           <div className="flex flex-wrap items-center gap-4 mt-2">
@@ -143,20 +169,20 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
             <ThreeMatrixCore />
           </div>
 
-          {/* Floating Status Badges */}
+          {/* Floating Capability Badges */}
           <div className="absolute top-[15%] left-2 sm:left-6 z-20 bg-[#10131a]/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 border-l-4 border-l-[#4d8eff] shadow-xl animate-[bounce_4s_infinite]">
-            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">System State</div>
-            <div className="font-mono text-xs text-white font-semibold">AURA VOICE CORE READY</div>
+            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">Context Layer</div>
+            <div className="font-mono text-xs text-white font-semibold">Session Continuity</div>
           </div>
 
           <div className="absolute top-[25%] right-2 sm:right-6 z-20 bg-[#10131a]/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 border-l-4 border-l-[#a855f7] shadow-xl animate-[bounce_5s_infinite_0.5s]">
-            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">Synthesis Engine</div>
-            <div className="font-mono text-xs text-white font-semibold">NEURAL VOICE ONLINE</div>
+            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">Voice Stack</div>
+            <div className="font-mono text-xs text-white font-semibold">LiveKit + Rime</div>
           </div>
 
           <div className="absolute bottom-[20%] left-4 sm:left-10 z-20 bg-[#10131a]/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/10 border-l-4 border-l-[#10b981] shadow-xl animate-[bounce_4.5s_infinite_1s]">
-            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">Vector Store</div>
-            <div className="font-mono text-xs text-white font-semibold">QDRANT CONNECTED</div>
+            <div className="font-mono text-[10px] text-[#c2c6d6] uppercase">Memory Engine</div>
+            <div className="font-mono text-xs text-white font-semibold">Qdrant Retrieval</div>
           </div>
         </div>
 
@@ -168,7 +194,7 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
           
           <div className="mb-14 text-center lg:text-left">
             <h2 className="font-['Geist'] text-3xl md:text-4xl font-bold text-white">Never Start From Zero</h2>
-            <p className="text-[#c2c6d6] text-base max-w-2xl mt-3">AURA maintains deep contextual awareness across sessions.</p>
+            <p className="text-[#c2c6d6] text-base max-w-2xl mt-3">AURA maintains workflow-specific context across sessions so the next turn starts with useful memory already in reach.</p>
           </div>
 
           {/* Horizontal Story Flow */}
@@ -255,7 +281,7 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
       {/* Footer */}
       <footer className="w-full py-8 px-6 md:px-12 bg-[#05070a] border-t border-white/10 relative z-10 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-mono text-[#c2c6d6]">
         <div className="font-bold text-white text-sm">
-          AURA MATRIX CORE
+          AURA / NEXIS
         </div>
 
         <div className="flex items-center gap-6">
@@ -264,7 +290,7 @@ export const MatrixCoreLanding: React.FC<MatrixCoreLandingProps> = ({
         </div>
 
         <div className="text-[11px] text-[#c2c6d6]/60 uppercase">
-          © 2026 MATRIX CORE ARCHITECTURE. ALL RIGHTS RESERVED.
+          © 2026 NEXIS ARCHITECTURE. ALL RIGHTS RESERVED.
         </div>
       </footer>
 

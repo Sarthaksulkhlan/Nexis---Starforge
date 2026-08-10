@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActiveView } from '../types';
 import { Signal, BatteryCharging, Settings, Activity, Cpu, Sparkles } from 'lucide-react';
+import { NexisLogo } from './NexisLogo';
 
 interface HeaderProps {
   activeView: ActiveView;
@@ -18,12 +19,12 @@ export const Header: React.FC<HeaderProps> = ({ activeView, setActiveView, isLiv
           onClick={() => setActiveView('matrix-core')} 
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#4d8eff] to-[#571bc1] p-0.5 flex items-center justify-center shadow-[0_0_15px_rgba(77,142,255,0.4)] group-hover:scale-105 transition-transform">
-            <Activity className="w-5 h-5 text-white animate-pulse" />
+          <div className="w-8 h-8 rounded-lg bg-[#0a0d14] border border-[#adc6ff]/30 p-0.5 flex items-center justify-center shadow-[0_0_15px_rgba(77,142,255,0.4)] group-hover:scale-105 transition-transform">
+            <NexisLogo className="w-7 h-7" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-['Geist'] text-lg md:text-xl font-bold tracking-tight text-[#adc6ff]">MATRIX CORE</span>
+              <span className="font-['Geist'] text-lg md:text-xl font-bold tracking-tight text-[#adc6ff]">NEXIS</span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#4d8eff]/20 text-[#adc6ff] border border-[#4d8eff]/30 font-semibold">AURA</span>
             </div>
             <p className="hidden sm:block text-[10px] font-mono text-[#c2c6d6]/70 tracking-wider">ADAPTIVE VOICE AGENT</p>

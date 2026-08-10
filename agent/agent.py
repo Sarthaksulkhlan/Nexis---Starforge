@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import UUID
@@ -32,6 +33,7 @@ from livekit.agents import (
     ChatMessage,
     JobContext,
     RoomInputOptions,
+    RoomOutputOptions,
     WorkerOptions,
     cli,
     inference,
@@ -49,6 +51,8 @@ Workflow = Literal["food", "healthcare", "cooking"]
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "matrix_core_memory")
 EMBEDDING_SIZE = 128
 AGENT_NAME = "matrix-core-agent"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
+RIME_SAMPLE_RATE = int(os.getenv("RIME_SAMPLE_RATE", "24000"))
 
 WORKFLOW_PROMPTS: dict[Workflow, str] = {
     "food": (
@@ -277,7 +281,20 @@ class MatrixCoreAgent(Agent):
 
 
 async def entrypoint(ctx: JobContext):
+    started_at = time.perf_counter()
+
+    async def publish_voice_event(event_type: str, **payload: Any) -> None:
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        event = {"type": event_type, "elapsed_ms": elapsed_ms, **payload}
+        logger.info("[VOICE] %s: %sms %s", event_type, elapsed_ms, payload)
+        await ctx.room.local_participant.publish_data(
+            json.dumps(event),
+            reliable=True,
+            topic="aura.control" if event_type != "aura_chat_message" else "aura.chat",
+        )
+
     await ctx.connect()
+    logger.info("LiveKit room connected latency_ms=%s", int((time.perf_counter() - started_at) * 1000))
 
     user_id, workflow = await _resolve_session_config(ctx)
     memory = MatrixMemoryStore()
@@ -285,10 +302,13 @@ async def entrypoint(ctx: JobContext):
 
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3", language="en"),
-        llm=google.LLM(model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), temperature=0.55),
+        llm=google.LLM(model=GEMINI_MODEL, temperature=0.55),
         tts=rime.TTS(
             model=os.getenv("RIME_MODEL_ID", "coda"),
             speaker=os.getenv("RIME_SPEAKER", "astra"),
+            sample_rate=RIME_SAMPLE_RATE,
+            use_websocket=True,
+            segment="immediate",
         ),
         vad=silero.VAD.load(),
         turn_detection="manual",
@@ -297,26 +317,81 @@ async def entrypoint(ctx: JobContext):
 
     @session.on("user_input_transcribed")
     def _on_user_transcript(ev):
-        logger.info("STT heard: %r final=%s", getattr(ev, "transcript", None), getattr(ev, "is_final", None))
+        transcript = getattr(ev, "transcript", None)
+        is_final = getattr(ev, "is_final", None)
+        logger.info("STT heard: %r final=%s", transcript, is_final)
+        if is_final and transcript:
+            asyncio.create_task(
+                publish_voice_event(
+                    "aura_chat_message",
+                    phase="stt-final",
+                    role="user",
+                    text=str(transcript),
+                    workflow=workflow,
+                )
+            )
+            asyncio.create_task(publish_voice_event("voice_state", state="THINKING", phase="stt-final"))
 
+    @session.on("agent_state_changed")
+    def _on_agent_state(ev):
+        state = str(getattr(ev, "new_state", "")).lower()
+        mapped_state = {
+            "initializing": "CONNECTING",
+            "listening": "AGENT_READY",
+            "thinking": "THINKING",
+            "speaking": "SPEAKING",
+        }.get(state, "AGENT_READY")
+        asyncio.create_task(publish_voice_event("voice_state", state=mapped_state, raw_state=state))
+
+    @session.on("user_state_changed")
+    def _on_user_state(ev):
+        state = str(getattr(ev, "new_state", "")).lower()
+        if state == "speaking":
+            asyncio.create_task(publish_voice_event("voice_state", state="LISTENING", raw_state=state))
+
+    @session.on("conversation_item_added")
+    def _on_conversation_item(ev):
+        item = getattr(ev, "item", None)
+        role = getattr(item, "role", None)
+        text = getattr(item, "text_content", None) or getattr(item, "content", None)
+        if isinstance(text, list):
+            text = " ".join(str(part) for part in text if isinstance(part, str))
+        if role in {"assistant", "user"} and text:
+            asyncio.create_task(
+                publish_voice_event(
+                    "aura_chat_message",
+                    phase="conversation-item",
+                    role=role,
+                    text=str(text),
+                    workflow=workflow,
+                )
+            )
+
+    session_start = time.perf_counter()
     await session.start(
         room=ctx.room,
         agent=MatrixCoreAgent(user_id=user_id, workflow=workflow, memory=memory),
         room_input_options=RoomInputOptions(noise_cancellation=noise_cancellation.BVC()),
+        room_output_options=RoomOutputOptions(audio_sample_rate=RIME_SAMPLE_RATE),
     )
+    logger.info("Agent session started latency_ms=%s", int((time.perf_counter() - session_start) * 1000))
 
     session.input.set_audio_enabled(False)
 
     @ctx.room.local_participant.register_rpc_method("start_turn")
     async def _start_turn(data):
-        session.interrupt()
+        logger.info("start_turn RPC received workflow=%s", workflow)
+        await publish_voice_event("voice_state", state="INTERRUPTED", phase="start-turn")
+        await session.interrupt(force=True)
         session.clear_user_turn()
         session.input.set_audio_enabled(True)
+        await publish_voice_event("voice_state", state="LISTENING", phase="mic-enabled")
         return "ok"
 
     @ctx.room.local_participant.register_rpc_method("end_turn")
     async def _end_turn(data):
         session.input.set_audio_enabled(False)
+        await publish_voice_event("voice_state", state="THINKING", phase="turn-committed")
         session.commit_user_turn()
         return "ok"
 
@@ -326,12 +401,26 @@ async def entrypoint(ctx: JobContext):
         session.clear_user_turn()
         return "ok"
 
+    await publish_voice_event(
+        "aura_ready",
+        agent_name=AGENT_NAME,
+        workflow=workflow,
+        user_id=user_id,
+        rime_sample_rate=RIME_SAMPLE_RATE,
+        rime_transport="websocket",
+    )
+    logger.info("AURA RPC ready workflow=%s total_startup_ms=%s", workflow, int((time.perf_counter() - started_at) * 1000))
+
     greeting = {
-        "food": "Hi, I'm Aura. Tell me what you're hungry for.",
-        "healthcare": "Hi, I'm Aura. I can help with appointments and general health information.",
-        "cooking": "Hi, I'm Aura. What are we cooking today?",
+        "food": "Hi, I'm AURA. I'm here to help you with your food order. What would you like today?",
+        "healthcare": "Hi, I'm AURA. I'm here to help with your healthcare needs. How can I assist you today?",
+        "cooking": "Hi, I'm AURA. I'm here to help you with home cooking. What would you like to make today?",
     }[workflow]
+    greeting_start = time.perf_counter()
+    await publish_voice_event("voice_state", state="SPEAKING", phase="greeting-start")
     await session.say(greeting, allow_interruptions=True)
+    await publish_voice_event("voice_state", state="AGENT_READY", phase="greeting-complete")
+    logger.info("initial greeting queued latency_ms=%s", int((time.perf_counter() - greeting_start) * 1000))
 
 
 if __name__ == "__main__":

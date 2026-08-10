@@ -35,10 +35,13 @@ export interface Session {
 }
 
 export type VoiceCoreState = 
+  | 'CONNECTING'
+  | 'AGENT_READY'
   | 'READY' 
   | 'LISTENING' 
   | 'THINKING' 
   | 'RETRIEVING CONTEXT' 
   | 'SPEAKING' 
   | 'INTERRUPTED' 
+  | 'ERROR'
   | 'RECONNECTING';

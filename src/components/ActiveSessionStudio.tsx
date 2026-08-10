@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Room, RoomEvent, createLocalAudioTrack } from 'livekit-client';
-import { Session, ExperienceType, VoiceCoreState, ActiveView } from '../types';
+import { Session, ExperienceType, VoiceCoreState, ActiveView, ChatMessage } from '../types';
 import { EXPERIENCE_DATA } from '../data/experienceData';
 import { ThreeOrb } from './ThreeOrb';
 import { Sidebar } from './Sidebar';
 import { 
   Mic, MicOff, Keyboard, StopCircle, Send, MemoryStick as Memory, 
-  Database, Check, Edit3, ChevronDown, Activity, RefreshCw, Cpu
+  Database, Check, ChevronDown, Activity, RefreshCw
 } from 'lucide-react';
 
 interface ActiveSessionStudioProps {
@@ -15,6 +15,7 @@ interface ActiveSessionStudioProps {
   onChangeExperience: (exp: ExperienceType) => void;
   setActiveView: (view: ActiveView) => void;
   onSendMessage: (text: string) => Promise<string>;
+  onVoiceMessage: (sender: ChatMessage['sender'], text: string) => void;
   onNewSession: () => void;
   isProcessing: boolean;
   sessionDurationSeconds: number;
@@ -26,6 +27,7 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
   onChangeExperience,
   setActiveView,
   onSendMessage,
+  onVoiceMessage,
   onNewSession,
   isProcessing,
   sessionDurationSeconds
@@ -37,22 +39,21 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
   const [showExperienceMenu, setShowExperienceMenu] = useState(false);
   const [isLiveKitConnected, setIsLiveKitConnected] = useState(false);
   const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceTransportState, setVoiceTransportState] = useState<'CONNECTING' | 'AGENT JOINING' | 'AGENT READY' | 'ERROR'>('CONNECTING');
+  const [voicePipelineState, setVoicePipelineState] = useState<VoiceCoreState>('CONNECTING');
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
   const roomRef = useRef<Room | null>(null);
   const micTrackRef = useRef<any>(null);
+  const typedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const committedVoiceMessagesRef = useRef<Set<string>>(new Set());
+  const remoteAudioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const voiceSessionStartedAtRef = useRef<number>(0);
 
   const currentExpConfig = EXPERIENCE_DATA[activeExperience] || EXPERIENCE_DATA.food;
 
-  // Derive dynamic AURA Voice Core State
-  const voiceState: VoiceCoreState = isProcessing
-    ? 'RETRIEVING CONTEXT'
-    : isSpeaking
-    ? 'SPEAKING'
-    : isListening
-    ? 'LISTENING'
-    : 'READY';
+  const voiceState: VoiceCoreState = isProcessing ? 'RETRIEVING CONTEXT' : voicePipelineState;
 
   // Format Session Duration HH:MM:SS
   const formatDuration = (totalSec: number) => {
@@ -69,7 +70,7 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    const audioElements: HTMLAudioElement[] = [];
+    const textDecoder = new TextDecoder();
 
     const findAgentIdentity = (room: Room) => {
       for (const participant of room.remoteParticipants.values()) {
@@ -83,8 +84,29 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
       return first?.identity || null;
     };
 
+    const commitVoiceMessage = (id: string, sender: ChatMessage['sender'], text: string) => {
+      const cleanText = text.trim();
+      if (!cleanText || committedVoiceMessagesRef.current.has(id)) return;
+      committedVoiceMessagesRef.current.add(id);
+      onVoiceMessage(sender, cleanText);
+    };
+
+    const markAgentReady = (identity?: string) => {
+      if (identity) setAgentIdentity(identity);
+      setVoiceTransportState('AGENT READY');
+      setVoicePipelineState('AGENT_READY');
+      setVoiceError(null);
+    };
+
     const connectLiveKit = async () => {
       try {
+        voiceSessionStartedAtRef.current = performance.now();
+        console.info('[VOICE] session-start: 0ms');
+        setVoiceTransportState('CONNECTING');
+        setVoicePipelineState('CONNECTING');
+        setVoiceError(null);
+        committedVoiceMessagesRef.current.clear();
+
         const tokenResponse = await fetch('/api/livekit/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -96,52 +118,118 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
         });
         if (!tokenResponse.ok) throw new Error('LiveKit token unavailable');
         const { url, token } = await tokenResponse.json();
+        console.info(`[VOICE] token-received: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
         if (cancelled) return;
 
         const room = new Room({ adaptiveStream: true, dynacast: true });
         roomRef.current = room;
 
-        room.on(RoomEvent.TrackSubscribed, (track: any) => {
+        room.on(RoomEvent.TrackSubscribed, (track: any, publication: any) => {
           if (track.kind !== 'audio' || !track.attach) return;
+          const audioKey = publication?.trackSid || track.sid || `${Date.now()}`;
+          remoteAudioElementsRef.current.get(audioKey)?.remove();
           const element = track.attach() as HTMLAudioElement;
           element.autoplay = true;
-          audioElements.push(element);
+          element.dataset.livekitTrackSid = audioKey;
+          remoteAudioElementsRef.current.set(audioKey, element);
           document.body.appendChild(element);
-          setIsSpeaking(true);
-          element.onended = () => setIsSpeaking(false);
-          element.play().catch(() => setIsSpeaking(false));
+          console.info(`[VOICE] livekit-audio-track-subscribed: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms track=${audioKey}`);
+          element.play().catch((error) => {
+            console.warn('LiveKit audio playback failed:', error);
+            setIsSpeaking(false);
+            setVoicePipelineState('AGENT_READY');
+          });
         });
 
-        room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+        room.on(RoomEvent.TrackUnsubscribed, (track: any, publication: any) => {
           track.detach?.().forEach((element: HTMLMediaElement) => element.remove());
-          setIsSpeaking(false);
+          const audioKey = publication?.trackSid || track.sid;
+          if (audioKey) {
+            remoteAudioElementsRef.current.get(audioKey)?.remove();
+            remoteAudioElementsRef.current.delete(audioKey);
+          }
+          console.info(`[VOICE] livekit-audio-track-unsubscribed: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
         });
 
         room.on(RoomEvent.ParticipantConnected, (participant) => {
           const attrs = (participant as any).attributes || {};
           if (attrs['lk.agent.name'] === 'matrix-core-agent' || participant.identity.toLowerCase().includes('agent')) {
             setAgentIdentity(participant.identity);
+            setVoiceTransportState('AGENT JOINING');
+            setVoicePipelineState('CONNECTING');
+            setVoiceError('AURA joined. Preparing voice controls...');
           }
+        });
+
+        room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
+          if (!topic?.startsWith('aura.')) return;
+          try {
+            const decoded = textDecoder.decode(payload);
+            const event = JSON.parse(decoded);
+            if (event?.type === 'aura_ready') {
+              console.info(`[VOICE] agent-ready: ${event.elapsed_ms ?? Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
+              markAgentReady(participant?.identity);
+            }
+            if (event?.type === 'voice_state' && event.state) {
+              const nextState = event.state as VoiceCoreState;
+              setVoicePipelineState(nextState);
+              setIsListening(nextState === 'LISTENING');
+              setIsSpeaking(nextState === 'SPEAKING');
+              console.info(`[VOICE] ${event.phase || 'state'}: ${event.elapsed_ms ?? Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms state=${event.state}`);
+            }
+            if (event?.type === 'aura_chat_message' && event.text) {
+              const sender: ChatMessage['sender'] = event.role === 'user' ? 'YOU' : 'AURA';
+              commitVoiceMessage(`${event.role}-${event.text}`, sender, event.text);
+              if (sender === 'YOU') setVoicePipelineState('THINKING');
+              console.info(`[VOICE] chat-${sender.toLowerCase()}-update: ${event.elapsed_ms ?? Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
+            }
+          } catch (error) {
+            console.warn('Unable to parse AURA LiveKit data packet:', error);
+          }
+        });
+
+        room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+          segments.forEach((segment) => {
+            if (!segment.final) return;
+            const sender: ChatMessage['sender'] = participant?.identity === room.localParticipant.identity ? 'YOU' : 'AURA';
+            commitVoiceMessage(`transcript-${sender}-${segment.id}`, sender, segment.text);
+            if (sender === 'YOU') setVoicePipelineState('THINKING');
+            console.info(`[VOICE] stt-final: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
+          });
+        });
+
+        room.on(RoomEvent.ChatMessage, (message, participant) => {
+          const sender: ChatMessage['sender'] = participant?.identity === room.localParticipant.identity ? 'YOU' : 'AURA';
+          commitVoiceMessage(`chat-${sender}-${message.id}`, sender, message.message);
         });
 
         room.on(RoomEvent.Disconnected, () => {
           setIsLiveKitConnected(false);
           setAgentIdentity(null);
+          setIsListening(false);
+          setIsSpeaking(false);
+          setVoiceTransportState('ERROR');
+          setVoicePipelineState('ERROR');
+          setVoiceError('LiveKit disconnected. Reopen the session to reconnect.');
         });
 
         await room.connect(url, token);
-        const track = await createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
-        await room.localParticipant.publishTrack(track);
-        await track.mute();
-        micTrackRef.current = track;
+        console.info(`[VOICE] livekit-connect: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
 
         if (!cancelled) {
           setIsLiveKitConnected(true);
-          setAgentIdentity(findAgentIdentity(room));
+          const identity = findAgentIdentity(room);
+          setAgentIdentity(identity);
+          setVoiceTransportState('AGENT JOINING');
+          setVoicePipelineState('CONNECTING');
+          setVoiceError(identity ? 'AURA joined. Preparing voice controls...' : 'Connected to LiveKit. Waiting for AURA agent to join.');
         }
       } catch (error) {
-        console.warn('LiveKit connection failed; falling back to browser STT demo mode:', error);
+        console.warn('LiveKit connection failed:', error);
         setIsLiveKitConnected(false);
+        setVoiceTransportState('ERROR');
+        setVoicePipelineState('ERROR');
+        setVoiceError('LiveKit is disconnected. Check the server, agent, and LiveKit credentials.');
       }
     };
 
@@ -151,103 +239,120 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
       cancelled = true;
       micTrackRef.current?.stop?.();
       micTrackRef.current = null;
+      typedAudioRef.current?.pause();
+      typedAudioRef.current = null;
       roomRef.current?.disconnect();
       roomRef.current = null;
-      audioElements.forEach((element) => element.remove());
+      remoteAudioElementsRef.current.forEach((element) => element.remove());
+      remoteAudioElementsRef.current.clear();
     };
-  }, [activeExperience, session.id]);
+  }, [activeExperience, session.id, onVoiceMessage]);
 
-  // Setup Web Speech Recognition
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
+  const getAgentDestination = (room: Room) => {
+    const firstParticipant = Array.from(room.remoteParticipants.values())[0] as { identity?: string } | undefined;
+    return agentIdentity || firstParticipant?.identity || null;
+  };
 
-      recognition.onstart = () => {
-        setIsListening(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript.trim()) {
-          handleSendUserMessage(transcript.trim());
-        }
-      };
-
-      recognition.onerror = () => {
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
+  const ensureMicrophoneTrack = async (room: Room) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('This browser does not expose microphone capture.');
     }
-  }, []);
 
-  const toggleMic = () => {
-    if (isLiveKitConnected && roomRef.current && micTrackRef.current) {
-      const room = roomRef.current;
-      const firstParticipant = Array.from(room.remoteParticipants.values())[0] as { identity?: string } | undefined;
-      const destinationIdentity = agentIdentity || firstParticipant?.identity;
-      if (!destinationIdentity) {
-        console.warn('LiveKit agent has not joined the room yet.');
-        return;
-      }
+    if (!micTrackRef.current) {
+      const track = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
+      await room.localParticipant.publishTrack(track, { name: 'aura-user-microphone' });
+      micTrackRef.current = track;
+      console.info('[AURA voice] microphone track published to LiveKit');
+    }
 
-      if (isListening) {
-        micTrackRef.current.mute?.();
-        room.localParticipant.performRpc({
-          destinationIdentity,
-          method: 'end_turn',
-          payload: JSON.stringify({ workflow: activeExperience }),
-          responseTimeout: 5000
-        }).catch((error: unknown) => console.warn('end_turn RPC failed:', error));
-        setIsListening(false);
-      } else {
-        room.localParticipant.performRpc({
-          destinationIdentity,
-          method: 'start_turn',
-          payload: JSON.stringify({ workflow: activeExperience }),
-          responseTimeout: 5000
-        }).then(() => {
-          micTrackRef.current?.unmute?.();
-          setIsListening(true);
-        }).catch((error: unknown) => console.warn('start_turn RPC failed:', error));
-      }
+    return micTrackRef.current;
+  };
+
+  const describeVoiceError = (error: unknown) => {
+    if (error instanceof DOMException && error.name === 'NotAllowedError') {
+      return 'Microphone permission was denied. Allow microphone access in your browser.';
+    }
+    if (error instanceof Error) return error.message;
+    return 'Unable to start the voice turn.';
+  };
+
+  const toggleMic = async () => {
+    if (!isLiveKitConnected || !roomRef.current) {
+      setVoiceError('LiveKit voice is not connected. Start the Node server and Python agent, then reopen this session.');
+      return;
+    }
+
+    const room = roomRef.current;
+    const destinationIdentity = getAgentDestination(room);
+    if (!destinationIdentity || voiceTransportState !== 'AGENT READY') {
+      setVoiceError('Connecting to AURA. Wait until voice transport shows AGENT READY.');
       return;
     }
 
     if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          setIsListening(true);
-        }
-      } else {
-        // Fallback demo text based on active experience
-        setIsListening(true);
-        setTimeout(() => {
-          setIsListening(false);
-          let sample = "I want something spicy for dinner.";
-          if (activeExperience === 'healthcare') sample = "I need help with an appointment.";
-          if (activeExperience === 'cooking') sample = "Help me make paneer butter masala.";
-          handleSendUserMessage(sample);
-        }, 2000);
+      try {
+        await micTrackRef.current?.mute?.();
+        setVoicePipelineState('THINKING');
+        console.info(`[VOICE] mic-stop: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
+        await room.localParticipant.performRpc({
+          destinationIdentity,
+          method: 'end_turn',
+          payload: JSON.stringify({ workflow: activeExperience }),
+          responseTimeout: 5000
+        });
+        setIsListening(false);
+        setVoiceError(null);
+      } catch (error: unknown) {
+        console.warn('end_turn RPC failed:', error);
+        setVoiceError('AURA did not accept the end-turn signal. Try again.');
       }
+      return;
+    }
+
+    try {
+      setVoiceTransportState('AGENT READY');
+      setVoicePipelineState(isSpeaking ? 'INTERRUPTED' : 'LISTENING');
+      if (isSpeaking) {
+        setVoiceError('Interrupting AURA...');
+        remoteAudioElementsRef.current.forEach((element) => {
+          element.pause();
+          element.currentTime = 0;
+        });
+      }
+      console.info(`[VOICE] mic-start: ${Math.round(performance.now() - voiceSessionStartedAtRef.current)}ms`);
+      await room.localParticipant.performRpc({
+        destinationIdentity,
+        method: 'start_turn',
+        payload: JSON.stringify({ workflow: activeExperience }),
+        responseTimeout: 5000
+      });
+      const track = await ensureMicrophoneTrack(room);
+      await track.unmute?.();
+      setIsListening(true);
+      setVoicePipelineState('LISTENING');
+      setVoiceError(null);
+    } catch (error: unknown) {
+      console.warn('start voice turn failed:', error);
+      setVoiceError(describeVoiceError(error));
+      room.localParticipant.performRpc({
+        destinationIdentity,
+        method: 'cancel_turn',
+        payload: JSON.stringify({ workflow: activeExperience }),
+        responseTimeout: 3000
+      }).catch(() => undefined);
+      setIsListening(false);
+      setVoicePipelineState('AGENT_READY');
     }
   };
 
   const speakText = async (text: string) => {
+    if (isLiveKitConnected) return;
     setIsSpeaking(true);
+    typedAudioRef.current?.pause();
     try {
       const response = await fetch('/api/tts', {
         method: 'POST',
@@ -263,12 +368,15 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
         const blob = new Blob([bytes], { type: data.mimeType || 'audio/mpeg' });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
+        typedAudioRef.current = audio;
         audio.onended = () => {
           URL.revokeObjectURL(url);
+          if (typedAudioRef.current === audio) typedAudioRef.current = null;
           setIsSpeaking(false);
         };
         audio.onerror = () => {
           URL.revokeObjectURL(url);
+          if (typedAudioRef.current === audio) typedAudioRef.current = null;
           setIsSpeaking(false);
         };
         await audio.play();
@@ -277,18 +385,9 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
 
       throw new Error(data.error || 'Rime audio unavailable');
     } catch (error) {
-      console.warn('Rime playback failed, using browser fallback:', error);
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.onend = () => setIsSpeaking(false);
-        utterance.onerror = () => setIsSpeaking(false);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setIsSpeaking(false);
-      }
+      console.warn('Rime playback failed:', error);
+      setVoiceError('Rime audio playback failed for the typed response.');
+      setIsSpeaking(false);
     }
   };
 
@@ -296,6 +395,7 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
     if (!msgText.trim()) return;
     setInputText('');
     setIsListening(false);
+    setVoicePipelineState(isLiveKitConnected ? 'THINKING' : voicePipelineState);
     
     const auraText = await onSendMessage(msgText);
     if (auraText) await speakText(auraText);
@@ -420,7 +520,7 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
           </div>
 
           {/* Center Panel: 3D Voice Core Visualizer & Transcript */}
-          <div className="flex-1 flex flex-col relative justify-between items-center h-full">
+          <div className="flex-1 flex flex-col relative items-center h-full min-h-0">
             
             {/* Dynamic Voice State Label */}
             <div className="my-2 z-20">
@@ -435,7 +535,7 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
             </div>
 
             {/* 3D Orb Voice Core Visualizer (NO FACE) */}
-            <div className="relative w-full max-w-sm aspect-square flex items-center justify-center my-auto">
+            <div className="relative w-full max-w-xs lg:max-w-sm aspect-square flex items-center justify-center flex-1 min-h-[220px] max-h-[42vh]">
               <div className={`absolute inset-0 rounded-full transition-all duration-500 ${
                 isListening 
                   ? 'bg-emerald-500/20 blur-[80px]' 
@@ -452,8 +552,8 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
             </div>
 
             {/* Live Transcript Box */}
-            <div className="w-full max-w-2xl bg-[#111622]/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 shadow-2xl mb-20 md:mb-24">
-              <div className="max-h-36 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+            <div className="w-full max-w-2xl bg-[#111622]/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 shadow-2xl flex flex-col min-h-0">
+              <div className="max-h-44 lg:max-h-56 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
                 {session.messages.map((msg) => (
                   <div key={msg.id} className="text-sm sm:text-base leading-relaxed">
                     <span className={`font-mono text-xs uppercase mr-2 font-bold ${
@@ -479,7 +579,16 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
             </div>
 
             {/* Bottom Controls Bar */}
-            <div className="fixed md:absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2">
+            <div className="z-30 flex flex-col items-center gap-2 mt-3 shrink-0">
+              <div className={`font-mono text-[10px] px-3 py-1 rounded-full border ${
+                voiceError
+                  ? 'bg-red-500/10 border-red-400/30 text-red-200'
+                  : voiceTransportState === 'AGENT READY'
+                  ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-200'
+                  : 'bg-[#4d8eff]/10 border-[#adc6ff]/30 text-[#adc6ff]'
+              }`}>
+                {voiceError || `VOICE TRANSPORT: ${voiceTransportState}`}
+              </div>
               
               {keyboardMode && (
                 <form
@@ -521,12 +630,13 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
 
                 <button
                   onClick={toggleMic}
+                  disabled={voiceTransportState !== 'AGENT READY'}
                   className={`w-14 h-14 rounded-full flex items-center justify-center text-white transition-all transform hover:scale-105 active:scale-95 ${
                     isListening
                       ? 'bg-gradient-to-tr from-emerald-500 to-teal-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] animate-pulse'
                       : 'bg-gradient-to-tr from-[#4d8eff] to-[#571bc1] shadow-[0_0_20px_rgba(173,198,255,0.4)]'
-                  }`}
-                  title={isListening ? "Listening... Click to stop" : "Click to speak to AURA"}
+                  } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                  title={voiceTransportState !== 'AGENT READY' ? "Connecting to AURA..." : isListening ? "Listening... Click to stop" : "Click to speak to AURA"}
                 >
                   {isListening ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
                 </button>

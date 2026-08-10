@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ActiveView, ExperienceType, Session, VectorMemoryItem, ChatMessage } from './types';
 import { EXPERIENCE_DATA } from './data/experienceData';
 import { Header } from './components/Header';
@@ -194,6 +194,31 @@ export default function App() {
     }
   };
 
+  const handleVoiceMessage = useCallback((sender: 'YOU' | 'AURA', text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
+    setCurrentSession((prev) => {
+      const lastMessage = prev.messages[prev.messages.length - 1];
+      if (lastMessage?.sender === sender && lastMessage.text.trim() === cleanText) {
+        return prev;
+      }
+
+      const voiceMsg: ChatMessage = {
+        id: `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        sender,
+        text: cleanText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      return {
+        ...prev,
+        messages: [...prev.messages, voiceMsg],
+        model: sender === 'AURA' ? 'Gemini + Rime' : prev.model
+      };
+    });
+  }, []);
+
   // Update Memory Item
   const handleUpdateMemory = (updated: VectorMemoryItem) => {
     setAllMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
@@ -246,6 +271,7 @@ export default function App() {
           onChangeExperience={handleSelectExperience}
           setActiveView={setActiveView}
           onSendMessage={handleSendMessage}
+          onVoiceMessage={handleVoiceMessage}
           onNewSession={handleNewSession}
           isProcessing={isProcessing}
           sessionDurationSeconds={sessionDurationSeconds}
