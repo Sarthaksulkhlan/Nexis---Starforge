@@ -103,7 +103,7 @@ export default function App() {
 
   // Send message to Gemini server-side endpoint /api/chat
   const handleSendMessage = async (userText: string) => {
-    if (!userText.trim()) return;
+    if (!userText.trim()) return '';
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -127,7 +127,10 @@ export default function App() {
         body: JSON.stringify({
           message: userText,
           taskTitle: currentSession.title,
+          workflow: activeExperience,
           experience: activeExperience,
+          userId: 'demo-user',
+          sessionId: currentSession.id,
           history: updatedMessages,
           retrievedMemories: currentSession.memories
         })
@@ -143,11 +146,27 @@ export default function App() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
+      const retrievedMemories = Array.isArray(data.retrievedContext)
+        ? data.retrievedContext.map((memory: any, index: number) => ({
+            id: memory.id || `qdrant-${Date.now()}-${index}`,
+            code: `QDR-${String(index + 1).padStart(3, '0')}`,
+            text: memory.text || 'Retrieved contextual memory',
+            source: 'Qdrant Retrieval' as const,
+            color: index % 2 === 0 ? 'primary' as const : 'tertiary' as const,
+            pinned: false
+          }))
+        : [];
+
       setCurrentSession((prev) => ({
         ...prev,
         messages: [...updatedMessages, auraMsg],
-        actionsTakenCount: prev.actionsTakenCount + (data.actionsTakenCount || 1)
+        actionsTakenCount: prev.actionsTakenCount + (data.actionsTakenCount || 1),
+        latency: data.latency?.totalMs ? `${data.latency.totalMs}ms` : prev.latency,
+        model: 'Gemini + Rime',
+        memories: retrievedMemories.length ? retrievedMemories : prev.memories,
+        memoriesUsedCount: retrievedMemories.length || prev.memoriesUsedCount
       }));
+      return auraText;
     } catch (err) {
       console.error("Error communicating with AURA server:", err);
       // Contextual fallback response
@@ -169,6 +188,7 @@ export default function App() {
         ...prev,
         messages: [...updatedMessages, fallbackMsg]
       }));
+      return fallbackText;
     } finally {
       setIsProcessing(false);
     }

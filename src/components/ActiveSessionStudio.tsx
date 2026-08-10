@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Room, RoomEvent, createLocalAudioTrack } from 'livekit-client';
 import { Session, ExperienceType, VoiceCoreState, ActiveView } from '../types';
 import { EXPERIENCE_DATA } from '../data/experienceData';
 import { ThreeOrb } from './ThreeOrb';
@@ -13,7 +14,7 @@ interface ActiveSessionStudioProps {
   activeExperience: ExperienceType;
   onChangeExperience: (exp: ExperienceType) => void;
   setActiveView: (view: ActiveView) => void;
-  onSendMessage: (text: string) => Promise<void>;
+  onSendMessage: (text: string) => Promise<string>;
   onNewSession: () => void;
   isProcessing: boolean;
   sessionDurationSeconds: number;
@@ -34,9 +35,13 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
   const [keyboardMode, setKeyboardMode] = useState(false);
   const [inputText, setInputText] = useState('');
   const [showExperienceMenu, setShowExperienceMenu] = useState(false);
+  const [isLiveKitConnected, setIsLiveKitConnected] = useState(false);
+  const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const roomRef = useRef<Room | null>(null);
+  const micTrackRef = useRef<any>(null);
 
   const currentExpConfig = EXPERIENCE_DATA[activeExperience] || EXPERIENCE_DATA.food;
 
@@ -61,6 +66,96 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session.messages, isProcessing]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const audioElements: HTMLAudioElement[] = [];
+
+    const findAgentIdentity = (room: Room) => {
+      for (const participant of room.remoteParticipants.values()) {
+        const attrs = (participant as any).attributes || {};
+        const identity = participant.identity || '';
+        if (attrs['lk.agent.name'] === 'matrix-core-agent' || identity.toLowerCase().includes('agent')) {
+          return identity;
+        }
+      }
+      const first = room.remoteParticipants.values().next().value;
+      return first?.identity || null;
+    };
+
+    const connectLiveKit = async () => {
+      try {
+        const tokenResponse = await fetch('/api/livekit/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflow: activeExperience,
+            userId: 'demo-user',
+            roomName: `matrix-core-${session.id}`
+          })
+        });
+        if (!tokenResponse.ok) throw new Error('LiveKit token unavailable');
+        const { url, token } = await tokenResponse.json();
+        if (cancelled) return;
+
+        const room = new Room({ adaptiveStream: true, dynacast: true });
+        roomRef.current = room;
+
+        room.on(RoomEvent.TrackSubscribed, (track: any) => {
+          if (track.kind !== 'audio' || !track.attach) return;
+          const element = track.attach() as HTMLAudioElement;
+          element.autoplay = true;
+          audioElements.push(element);
+          document.body.appendChild(element);
+          setIsSpeaking(true);
+          element.onended = () => setIsSpeaking(false);
+          element.play().catch(() => setIsSpeaking(false));
+        });
+
+        room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
+          track.detach?.().forEach((element: HTMLMediaElement) => element.remove());
+          setIsSpeaking(false);
+        });
+
+        room.on(RoomEvent.ParticipantConnected, (participant) => {
+          const attrs = (participant as any).attributes || {};
+          if (attrs['lk.agent.name'] === 'matrix-core-agent' || participant.identity.toLowerCase().includes('agent')) {
+            setAgentIdentity(participant.identity);
+          }
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          setIsLiveKitConnected(false);
+          setAgentIdentity(null);
+        });
+
+        await room.connect(url, token);
+        const track = await createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
+        await room.localParticipant.publishTrack(track);
+        await track.mute();
+        micTrackRef.current = track;
+
+        if (!cancelled) {
+          setIsLiveKitConnected(true);
+          setAgentIdentity(findAgentIdentity(room));
+        }
+      } catch (error) {
+        console.warn('LiveKit connection failed; falling back to browser STT demo mode:', error);
+        setIsLiveKitConnected(false);
+      }
+    };
+
+    connectLiveKit();
+
+    return () => {
+      cancelled = true;
+      micTrackRef.current?.stop?.();
+      micTrackRef.current = null;
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      audioElements.forEach((element) => element.remove());
+    };
+  }, [activeExperience, session.id]);
 
   // Setup Web Speech Recognition
   useEffect(() => {
@@ -95,6 +190,38 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
   }, []);
 
   const toggleMic = () => {
+    if (isLiveKitConnected && roomRef.current && micTrackRef.current) {
+      const room = roomRef.current;
+      const firstParticipant = Array.from(room.remoteParticipants.values())[0] as { identity?: string } | undefined;
+      const destinationIdentity = agentIdentity || firstParticipant?.identity;
+      if (!destinationIdentity) {
+        console.warn('LiveKit agent has not joined the room yet.');
+        return;
+      }
+
+      if (isListening) {
+        micTrackRef.current.mute?.();
+        room.localParticipant.performRpc({
+          destinationIdentity,
+          method: 'end_turn',
+          payload: JSON.stringify({ workflow: activeExperience }),
+          responseTimeout: 5000
+        }).catch((error: unknown) => console.warn('end_turn RPC failed:', error));
+        setIsListening(false);
+      } else {
+        room.localParticipant.performRpc({
+          destinationIdentity,
+          method: 'start_turn',
+          payload: JSON.stringify({ workflow: activeExperience }),
+          responseTimeout: 5000
+        }).then(() => {
+          micTrackRef.current?.unmute?.();
+          setIsListening(true);
+        }).catch((error: unknown) => console.warn('start_turn RPC failed:', error));
+      }
+      return;
+    }
+
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
@@ -119,16 +246,49 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
     }
   };
 
-  const speakText = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      window.speechSynthesis.speak(utterance);
+  const speakText = async (text: string) => {
+    setIsSpeaking(true);
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await response.json();
+
+      if (data.audio) {
+        const binary = atob(data.audio);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: data.mimeType || 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          setIsSpeaking(false);
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          setIsSpeaking(false);
+        };
+        await audio.play();
+        return;
+      }
+
+      throw new Error(data.error || 'Rime audio unavailable');
+    } catch (error) {
+      console.warn('Rime playback failed, using browser fallback:', error);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setIsSpeaking(false);
+      }
     }
   };
 
@@ -137,13 +297,8 @@ export const ActiveSessionStudio: React.FC<ActiveSessionStudioProps> = ({
     setInputText('');
     setIsListening(false);
     
-    await onSendMessage(msgText);
-
-    // Speak response
-    const lastMsg = session.messages[session.messages.length - 1];
-    if (lastMsg && lastMsg.sender === 'AURA') {
-      speakText(lastMsg.text);
-    }
+    const auraText = await onSendMessage(msgText);
+    if (auraText) await speakText(auraText);
   };
 
   return (

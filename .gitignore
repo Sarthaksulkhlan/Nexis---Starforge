@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+backend/.env*
+!backend/.env.example
+agent/.env*
+!agent/.env.example
