@@ -1,0 +1,6 @@
+{
+  "name": "AURA - Adaptive Voice Agent",
+  "description": "An advanced contextual AI voice agent platform with vector memory retrieval, 3D core visualizer, and interactive session management.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
