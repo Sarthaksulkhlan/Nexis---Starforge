@@ -1,75 +1,109 @@
-﻿<h1 align="center">NEXIS · Starforge</h1>
+﻿<p align="center">
+  <img src="docs/assets/hero.gif" width="1200" alt="NEXIS Starforge — AURA adaptive voice agent. Animated signals trace microphone input through LiveKit, speech recognition, Qdrant context, Gemini, and Rime speech output.">
+</p>
+
+<h1 align="center">NEXIS · Starforge</h1>
+<p align="center"><strong>A conversation. With context.</strong><br>AURA brings workflow-aware responses, retrieved memory, and spoken interaction into one session.</p>
 
 <p align="center">
-  <strong>AURA — an adaptive voice agent with workflow-aware memory.</strong><br>
-  Talk through a food order, get appointment assistance, or follow a recipe one step at a time.
+  <img src="https://img.shields.io/badge/React-19-111827?style=flat-square&logo=react&logoColor=89deed" alt="React 19">
+  <img src="https://img.shields.io/badge/TypeScript-5.8-111827?style=flat-square&logo=typescript&logoColor=7baaff" alt="TypeScript 5.8">
+  <img src="https://img.shields.io/badge/Python-3.10%20to%203.14-111827?style=flat-square&logo=python&logoColor=c4adff" alt="Python 3.10–3.14">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-111827?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white">
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white">
-  <img alt="LiveKit voice" src="https://img.shields.io/badge/LiveKit-voice-111827">
-  <img alt="Qdrant memory" src="https://img.shields.io/badge/Qdrant-memory-DC244C">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-lightgrey"></a>
+  <a href="#experience">Experience</a> &nbsp; · &nbsp;
+  <a href="#inside-the-product">Screenshots</a> &nbsp; · &nbsp;
+  <a href="#architecture">Architecture</a> &nbsp; · &nbsp;
+  <a href="#quick-start">Quick start</a> &nbsp; · &nbsp;
+  <a href="#development">Development</a>
 </p>
-
-<p align="center">
-  <a href="#overview">Overview</a> ·
-  <a href="#experiences">Experiences</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#run-locally">Run locally</a> ·
-  <a href="#configuration">Configuration</a> ·
-  <a href="#documentation">Documentation</a>
-</p>
+<p align="center"><sub>Voice-agent prototype · Original illustrated flow, not a performance benchmark · <a href="docs/assets/hero-poster.png">View the still hero</a></sub></p>
 
 ---
 
-## Overview
+## Experience
 
-NEXIS · Starforge is a voice-assistant demo built around **AURA**. It combines a React session interface, a Node/Express API, and a Python LiveKit worker to connect spoken conversations with workflow-specific context. The codebase also uses **Matrix Core** as its internal project name.
+**Choose a task. Bring in context. Keep the conversation moving.**
 
-Gemini generates responses, Qdrant stores and retrieves contextual memories, and Rime provides speech output. The interface brings together transcripts, retrieved context, session timing, and a session summary, with animated Three.js visuals.
+NEXIS is a React application with an Express API and a separate Python voice worker. Its assistant, **AURA**, uses Gemini for text generation, Qdrant for contextual memory, LiveKit for real-time transport, and Rime for speech synthesis. The source also uses **Matrix Core** as its internal project name.
 
-For example, in the food workflow, AURA can use a remembered vegetarian preference while helping assemble an order. In cooking mode, it can use recipe context to guide the next step. These are conversational demo workflows; the repository does not integrate restaurant checkout or appointment-booking systems.
+The three implemented experiences change the assistant's prompts and context. They provide conversational help; they do not execute restaurant purchases or book real appointments.
 
-## Experiences
+<img src="docs/assets/experiences.svg" width="1200" alt="Three experiences: food ordering with preference and order context; healthcare with appointment-related and general information; home cooking with recipes, substitutions, and short spoken steps.">
 
-| Experience | Conversation focus | Context used by the demo |
-| --- | --- | --- |
-| **Food ordering** | Build or modify a food order and confirm choices | Dietary preferences, previous orders, menu context, and unfinished order state |
-| **Healthcare assistance** | Appointment-related help and general health information | Previous appointment requests and workflow safety instructions |
-| **Home cooking** | Recipe guidance and substitutions | Food preferences and recipe progress |
+| Capability | What is implemented |
+| --- | --- |
+| **Controlled voice turns** | Click to speak, click again to commit the turn, and start another turn to interrupt AURA. The worker exposes `start_turn`, `end_turn`, and `cancel_turn` RPCs. |
+| **Context before the response** | Both execution paths query Qdrant with `user_id` and `workflow` filters. The voice worker injects retrieved context before Gemini responds. |
+| **Typed conversation** | A keyboard input sends recent conversation history to `/api/chat`. Rime playback is attempted when the browser is not connected to LiveKit. |
+| **Visible session state** | A Three.js orb, transcripts, a session timer, and voice-state events accompany the conversation. The studio's context cards display seeded experience data. |
+| **Session review** | The summary shows session values and memories, with controls to add or edit memories in browser state. These edits do not write to Qdrant. |
 
-The healthcare prompt limits AURA to general information and administrative help, excludes diagnosis and prescribing, and directs serious symptoms toward professional care.
+Healthcare prompts restrict responses to administrative help and general information, exclude diagnosis and prescribing, and direct serious symptoms toward professional care.
+
+## Inside the product
+
+**Actual application captures, not mockups.** These screenshots were taken from the unmodified local app without provider credentials. Transcripts and context cards are seeded demo content. The visible LiveKit error is expected; static latency, model, and “Qdrant connected” labels do not establish service health.
+
+<a href="docs/assets/app-studio.jpg"><img src="docs/assets/app-studio.jpg" width="1200" alt="Actual NEXIS session studio: food-ordering context, a Three.js voice orb, seeded transcript, microphone controls, and the expected disconnected-LiveKit message."></a>
+
+<p align="center"><sub>Active Studio · Food ordering · Credential-free demo state</sub></p>
+
+<details>
+<summary><strong>Explore the landing page, experience selector, and session summary</strong></summary>
+
+### The entry point
+
+<img src="docs/assets/app-overview.jpg" width="1200" alt="Actual NEXIS landing page with its adaptive voice-agent introduction and animated core visualization.">
+
+### Choose a workflow
+
+<img src="docs/assets/app-experiences.jpg" width="1200" alt="Actual experience selection dialog with Food Ordering, Healthcare, and Home Cooking.">
+
+### Review the session
+
+<img src="docs/assets/app-summary.jpg" width="1200" alt="Actual session summary showing demo session values and editable browser-local memory cards.">
+
+</details>
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    UI["Browser · React + TypeScript"] -->|"Chat, tokens, speech requests"| API["Express · server.ts"]
-    API -->|"Text generation"| GEMINI["Gemini"]
-    API <-->|"Context and memory updates"| MEMORY[("Qdrant")]
-    API -->|"Speech synthesis"| RIME["Rime Coda"]
-    API -->|"Dispatch voice worker"| ROOM["LiveKit room"]
-    UI <-->|"Microphone, audio, transcripts"| ROOM
-    ROOM <--> AGENT["Python · AURA agent"]
-    AGENT --> STT["LiveKit Inference · Deepgram STT"]
-    AGENT --> GEMINI
-    AGENT <--> MEMORY
-    AGENT --> RIME
-```
+**Two execution paths share the same service stack.** Express serves the web application and HTTP endpoints. The Python worker runs independently and joins LiveKit rooms dispatched by Express.
 
-**Text interaction:** the browser sends a message to `/api/chat`. Express retrieves user- and workflow-scoped memories, asks Gemini for a short response, and saves selected memory updates. `/api/tts` returns Rime audio for browser playback.
+<img src="docs/assets/architecture.svg" width="1200" alt="Architecture: text requests travel from React to Express, which calls Qdrant, Gemini, and Rime. Voice connects React to a LiveKit room and a Python AgentSession using speech recognition, Qdrant, Gemini, and Rime. Express issues tokens and dispatches the worker.">
 
-**Voice interaction:** the browser obtains a short-lived token, joins a LiveKit room, and publishes microphone audio. The Python worker uses speech recognition, Gemini, Qdrant, and Rime to respond through the room. Manual turn controls use the agent's `start_turn`, `end_turn`, and `cancel_turn` RPC methods.
+| Layer | Technologies | Responsibility |
+| --- | --- | --- |
+| Interface | React 19, TypeScript, Tailwind CSS 4, Lucide | Experience selection, session controls, transcripts, and summaries |
+| Visuals | Three.js | Core geometry, orbital rings, and listening/speaking visualization |
+| Web runtime | Express 4, Vite 6, tsx, esbuild | API routes, development middleware, and production frontend serving |
+| Voice worker | Python, LiveKit Agents, Silero, LiveKit noise cancellation | Room participation, manual turn control, speech input, and streamed audio |
+| Recognition | Deepgram Nova-3 through LiveKit Inference | Voice-to-text transcription |
+| Generation | Google Gen AI SDK / LiveKit Google plugin | Workflow-aware Gemini responses |
+| Speech | Rime Coda | HTTP synthesis for typed responses; WebSocket synthesis in the worker |
+| Memory | Qdrant over HTTP | Seeded context, filtered retrieval, and selected writes from text chat |
 
-Express serves both the frontend and API on port `3000`. The voice worker runs separately.
+### Memory, precisely
 
-## Run locally
+Both backends build **128-dimensional deterministic hash vectors** and use cosine search with a maximum of four retrieved memories. This is lightweight vector retrieval, not a learned semantic embedding model.
 
-### 1. Install the web app
+The Node text endpoint saves selected food preferences, order state, and cooking context using keyword rules. The voice worker seeds and retrieves demo memories; it does not extract and save new conversational facts. Manual summary edits remain in React state. The browser currently sends a shared `demo-user` identity.
 
-Use Node.js **22.12+**, npm, and Git. For the voice worker, use Python **3.10–3.14** and `uv` (the supported Python range is declared in `agent/pyproject.toml`).
+## A voice turn
+
+<img src="docs/assets/voice-workflow.svg" width="1200" alt="Voice turn workflow: connect with a token and dispatched agent; start_turn enables input and interrupts speech; end_turn commits input; Qdrant context is retrieved; Gemini generates and Rime synthesizes; audio and transcripts return through LiveKit.">
+
+The worker sends `aura_ready`, voice-state, and conversation events back to the browser. Starting a new turn interrupts current output and clears the previous input buffer. `cancel_turn` clears an aborted input.
+
+The separate **text path** is: typed message → `/api/chat` → memory retrieval → Gemini (or a fallback response) → selected memory writes → browser transcript. When LiveKit is disconnected, the browser also requests `/api/tts` for playback.
+
+## Quick start
+
+### 01 · Start the web application
+
+Use **Node.js 22.12+**, npm, and Git. The voice worker additionally requires **Python 3.10–3.14** and `uv`.
 
 ```powershell
 git clone https://github.com/Sarthaksulkhlan/Nexis---Starforge.git
@@ -78,21 +112,52 @@ npm ci
 Copy-Item .env.example .env.local
 ```
 
-On macOS or Linux, use `cp .env.example .env.local` for the copy step.
+On macOS or Linux, replace the last command with `cp .env.example .env.local`.
 
-Edit `.env.local` with your service credentials using the [configuration table](#configuration). Keep credentials in the server environment; `.env.local` is excluded from Git.
-
-### 2. Start the frontend and API
+Fill in `.env.local` using the service settings below, then run:
 
 ```powershell
 npm run dev
 ```
 
-Open **[http://localhost:3000](http://localhost:3000)**.
+Open **[localhost:3000](http://localhost:3000)**. Frontend and API use the same port.
 
-You can explore the interface without service credentials. To try fallback text responses, leave credential values unset instead of keeping the example placeholders. Live voice requires configured services and the worker below.
+**Just exploring the interface?** You can run without credentials. Leave credential fields unset or empty instead of retaining placeholder strings. Text chat has fallback responses; live voice and synthesized speech require their providers. The studio displays a voice connection error until LiveKit and the worker are available.
 
-### 3. Start the voice worker
+### 02 · Configure services
+
+| Settings | Used for |
+| --- | --- |
+| `GOOGLE_API_KEY` | Gemini access; the Node server also accepts `GEMINI_API_KEY` |
+| `GEMINI_MODEL` | Model selection; both example files specify `gemini-2.5-flash` |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | LiveKit room access, token creation, and worker dispatch |
+| `RIME_API_KEY` | Speech synthesis |
+| `QDRANT_URL`, `QDRANT_API_KEY` | Memory service; the key is needed when the deployment requires authentication |
+
+Keep credentials server-side. `.env.local` and the worker's `.env` are ignored by Git.
+
+<details>
+<summary><strong>Optional settings and configuration behavior</strong></summary>
+
+| Setting | Behavior |
+| --- | --- |
+| `PORT` | Express port; defaults to `3000` |
+| `QDRANT_COLLECTION` | Defaults to `matrix_core_memory` |
+| `RIME_MODEL_ID`, `RIME_SPEAKER` | Default speech model and speaker: `coda`, `astra` |
+| `RIME_API_URL`, `RIME_LANGUAGE` | Node HTTP synthesis endpoint and language |
+| `RIME_SAMPLE_RATE` | Python audio sample rate; defaults to `24000` |
+| `GEMINI_FALLBACK_MODEL` | Node retries this model; Python uses it only when `GEMINI_MODEL` is unset |
+| `LIVEKIT_AGENT_NAME` | Node dispatch target; keep the default `matrix-core-agent` to match the worker |
+
+Use an accessible model for your account. Model identifiers in the source are configuration defaults, not a guarantee of provider availability.
+
+Express loads `.env.local`, then `.env`. Launched from `agent/`, the worker loads `../.env.local`, `../.env`, then its local `.env`; existing values take precedence. `APP_URL` is present in the template but is not read by the current server.
+
+Templates: [web server](.env.example) · [voice worker](agent/.env.example).
+
+</details>
+
+### 03 · Start the voice worker
 
 In a second terminal, from the repository root:
 
@@ -104,59 +169,49 @@ uv run agent.py download-files
 uv run agent.py dev
 ```
 
-The worker loads the root `.env.local` when launched from `agent/`. Alternatively, use `agent/.env.example` as a template for `agent/.env`; root values loaded first take precedence. Use a LiveKit project with access to LiveKit Inference for the configured speech-recognition model.
+Use a LiveKit project with access to LiveKit Inference for the configured STT model. Keep both processes running. Allow microphone access and use localhost or HTTPS.
 
-Keep both terminals running, allow browser microphone access, choose an experience, and use the session's microphone controls. Microphone access requires localhost or HTTPS.
+### 04 · Try a session
 
-### 4. Try a conversation
+1. Select **Start a Voice Session**, then choose an experience.
+2. Wait for **AGENT READY**, click the microphone, and speak. Click again to submit the turn.
+3. In Food Ordering, try “Can you suggest a vegetarian dinner?” and follow with “Make it spicy.”
+4. Use **Toggle Text Input** to try typed chat, or switch to Home Cooking for recipe guidance.
+5. Choose **Finish & View Summary** to inspect the session. Memory edits here are local to the current page state.
 
-1. Select **Food ordering** and ask, “Can you suggest a vegetarian dinner?”
-2. Continue with “Make it spicy,” then inspect the transcript and retrieved context.
-3. Switch to **Home cooking** and ask for help preparing a recipe.
-4. End the session to review its summary and displayed memories.
+<details>
+<summary><strong>Troubleshooting and API reference</strong></summary>
 
-Initial conversations and memories include seeded demo content. Responses depend on the configured services and available context.
-
-## Configuration
-
-The root [`.env.example`](.env.example) contains the web server settings; [`agent/.env.example`](agent/.env.example) contains the worker settings.
-
-| Variable | Purpose |
+| Symptom | Check |
 | --- | --- |
-| `GOOGLE_API_KEY` | Gemini credentials; the Node server also accepts `GEMINI_API_KEY` |
-| `GEMINI_MODEL` | Model selection; the example configuration uses `gemini-2.5-flash` |
-| `LIVEKIT_URL` | LiveKit WebSocket URL |
-| `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Server and worker credentials for LiveKit |
-| `RIME_API_KEY` | Rime speech synthesis credentials |
-| `RIME_MODEL_ID`, `RIME_SPEAKER` | Speech model and voice; example values are `coda` and `astra` |
-| `RIME_API_URL`, `RIME_LANGUAGE` | Node speech endpoint and language settings |
-| `QDRANT_URL` | Qdrant endpoint for contextual memory |
-| `QDRANT_API_KEY` | Authentication for Qdrant deployments that require it |
-| `QDRANT_COLLECTION` | Memory collection; defaults to `matrix_core_memory` |
-| `PORT` | Web server port; defaults to `3000` |
+| LiveKit token unavailable | Root LiveKit credentials, the running Python worker, and matching `matrix-core-agent` dispatch name |
+| Connected, waiting for AURA | Worker logs, LiveKit project access, and worker service credentials |
+| Microphone unavailable | Browser permission and a localhost/HTTPS origin |
+| Typed response has no audio | Rime credentials; typed-response synthesis is skipped while LiveKit is connected |
+| Empty retrieval | Qdrant URL, authentication, collection access, and server/worker logs |
 
-## API
-
-| Method | Endpoint | Purpose |
+| Method | Route | Result |
 | --- | --- | --- |
-| `GET` | `/api/health` | Report which service settings are present, without exposing secrets |
-| `POST` | `/api/livekit/token` | Create a room token and dispatch the AURA voice worker |
-| `POST` | `/api/chat` | Generate a workflow-aware response with retrieved context and timing data |
-| `POST` | `/api/tts` | Convert text to base64-encoded speech audio |
+| `GET` | `/api/health` | Service configuration-presence flags; does not test connectivity |
+| `POST` | `/api/livekit/token` | Short-lived token, room, identity, workflow, and worker dispatch |
+| `POST` | `/api/chat` | Response text, retrieved context, and request timing |
+| `POST` | `/api/tts` | Base64-encoded audio and synthesis metadata |
 
-`/api/health` checks configuration presence, not provider connectivity. LiveKit and Rime endpoints return errors when required configuration is missing. Text chat can return workflow-specific fallback responses when Gemini is unavailable.
+Missing LiveKit or Rime configuration produces errors from those endpoints. Gemini failures can produce workflow-specific text fallbacks. Qdrant retrieval failures are logged and can fall back to no retrieved memory.
 
-## Development commands
+</details>
+
+## Development
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Start Express with Vite development middleware |
-| `npm run lint` | Run TypeScript checking with `tsc --noEmit` |
-| `npm run build` | Build frontend assets and bundle the Node server into `dist/` |
-| `npm start` | Run `dist/server.cjs`; set `NODE_ENV=production` to serve built frontend assets |
-| `npm run preview` | Preview the Vite frontend build; does not start the API |
+| `npm run dev` | Express + Vite development middleware |
+| `npm run lint` | TypeScript checking (`tsc --noEmit`) |
+| `npm run build` | Frontend build + bundled Node server in `dist/` |
+| `npm start` | Run the bundled server; set `NODE_ENV=production` to serve built frontend assets |
+| `npm run preview` | Vite frontend preview only; does not run the API |
 
-To run a production build in PowerShell:
+Production build in PowerShell:
 
 ```powershell
 npm run build
@@ -164,42 +219,47 @@ $env:NODE_ENV = "production"
 npm start
 ```
 
-On macOS or Linux, use `NODE_ENV=production npm start` after building. Voice sessions still require the separate Python worker.
+On macOS/Linux, use `NODE_ENV=production npm start` after building. Live voice still needs the Python worker.
 
-## Repository layout
+### Project structure
 
 ```text
-src/
-  App.tsx                 Experience selection and session state
-  components/             Landing page, session studio, summaries, and visuals
-  data/                   Experience definitions and seeded demo content
-  types.ts                Shared frontend types
-server.ts                 Express API and frontend serving
-agent/
-  agent.py                LiveKit voice worker and Qdrant memory integration
-  pyproject.toml          Python dependencies and supported versions
-backend/
-  README.md               Backend setup notes; server code lives at the root
-.env.example              Root configuration template
+Nexis---Starforge/
+├── src/
+│   ├── App.tsx                 Three active views and browser session state
+│   ├── components/             Landing, studio, summary, controls, 3D visuals
+│   ├── data/experienceData.ts   Three workflow definitions and demo content
+│   └── types.ts                Session, memory, experience, and voice-state types
+├── server.ts                   Express routes, provider calls, memory helpers
+├── agent/
+│   ├── agent.py                LiveKit worker and turn-context retrieval
+│   ├── pyproject.toml          Python dependencies and version range
+│   └── uv.lock                 Python dependency lockfile
+├── backend/                    Setup notes; executable server is at the root
+├── docs/
+│   ├── assets/                 Hero GIF, SVG diagrams, real app screenshots
+│   └── design/                 Asset builders, provenance, verification notes
+├── .env.example                Server configuration template
+└── package.json                Web dependencies and scripts
 ```
 
-## Current scope
+### Scope and contribution
 
-- This is a demo application. Initial transcripts, memories, and some interface metrics are seeded values, not measured performance claims.
-- Memory retrieval uses deterministic 128-dimensional hash vectors, rather than a learned semantic embedding model.
-- The browser uses the shared `demo-user` identity. User authentication and account isolation are not implemented.
-- Session state and manual memory edits in the interface live in React state. They are separate from the backend's Qdrant memory writes and are not a persistent session archive.
-- Food and healthcare workflows provide conversational assistance; they do not place real orders or book appointments.
+This is a prototype with seeded conversations and some static interface indicators. It has no user authentication, persistent session archive, order checkout, or appointment-booking integration. Archive and vault components exist in the source but are not connected to the active view router. There is no application test suite or CI workflow in this snapshot.
+
+Contributions can address these concrete gaps: authenticating users, persisting sessions, connecting summary edits to memory storage, replacing static status indicators with measured state, and adding integration tests. These are **possible next steps**, not shipped features or a committed roadmap.
+
+For a contribution, describe the problem in an [issue](https://github.com/Sarthaksulkhlan/Nexis---Starforge/issues), make a focused change, run `npm run lint` and `npm run build`, and include relevant manual verification in your pull request. For voice changes, verify a session against configured providers. Never commit credentials.
 
 ## Documentation
 
-| Resource | Contents |
+| Guide | What it covers |
 | --- | --- |
-| [Voice worker guide](agent/README.md) | Python setup and LiveKit interaction details |
-| [Backend guide](backend/README.md) | Root server setup and endpoint overview |
-| [Web configuration](.env.example) | Server environment template |
-| [Worker configuration](agent/.env.example) | Voice agent environment template |
+| [Voice worker](agent/README.md) | Python setup and LiveKit interaction |
+| [Backend](backend/README.md) | Root server and endpoints |
+| [Visual provenance and reproduction](docs/design/README.md) | Original illustration, screenshot capture, diagram source mapping, GIF generation, and verification |
 
-## License
+---
 
-MIT License. Copyright © 2026 Sarthak Sulkhlan. See [LICENSE](LICENSE).
+<p align="center"><strong>NEXIS · Starforge</strong><br><sub>AURA / Adaptive Voice Agent</sub></p>
+<p align="center"><sub>Created by Sarthak Sulkhlan · <a href="LICENSE">MIT License</a> · Copyright © 2026</sub></p>
